@@ -31,9 +31,9 @@
         .markdown-body s { text-decoration: line-through; }
         .markdown-body input[type="checkbox"] { margin-right: 0.5em; }
         @media print {
-            body, .h-screen { height: auto; }
+            body, .h-screen, main { display: block !important; height: auto !important; overflow: visible !important; }
             header, textarea, .no-print { display: none !important; }
-            #preview { width: 100% !important; height: auto !important; padding: 0 !important; }
+            #preview { display: block !important; width: 100% !important; height: auto !important; padding: 0 !important; overflow: visible !important; }
             .markdown-body { font-size: 14px; }
             /* Prevent breaking elements across pages */
             .markdown-body p, .markdown-body li, .markdown-body table, .markdown-body pre { break-inside: avoid; }
@@ -93,29 +93,16 @@
         editor.addEventListener('input', updatePreview);
 
         // Open File
-        fileInput.addEventListener('change', async (e) => {
+        fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            
-            // File System Access API をサポートしている場合のみハンドルを取得
-            if ('showOpenFilePicker' in window) {
-                try {
-                    [currentFileHandle] = await window.showOpenFilePicker();
-                    const file = await currentFileHandle.getFile();
-                    editor.value = await file.text();
-                    updatePreview();
-                } catch (err) {
-                    if (err.name !== 'AbortError') console.error(err);
-                }
-            } else {
-                // フォールバック
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    editor.value = e.target.result;
-                    updatePreview();
-                };
-                reader.readAsText(file);
-            }
+            currentFileName = file.name;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                editor.value = e.target.result;
+                updatePreview();
+            };
+            reader.readAsText(file);
         });
 
         // Save File (as new)
