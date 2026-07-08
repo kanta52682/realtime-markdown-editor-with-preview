@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <style>
+        /* GitHub-like styling for preview */
+        .markdown-body {
+            font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            word-wrap: break-word;
+        }
+        .markdown-body h1, .markdown-body h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 24px; margin-bottom: 16px; font-weight: 600; }
+        .markdown-body p { margin-top: 0; margin-bottom: 16px; }
+        .markdown-body code { background-color: rgba(27,31,35,.05); padding: .2em .4em; border-radius: 3px; }
+        .markdown-body pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; }
+        .markdown-body ul { padding-left: 2em; margin-top: 0; margin-bottom: 16px; list-style-type: disc; }
+        .markdown-body ol { padding-left: 2em; margin-top: 0; margin-bottom: 16px; list-style-type: decimal; }
+        .markdown-body li { margin-top: .25em; }
+        .markdown-body table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+        .markdown-body table th, .markdown-body table td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        .markdown-body table tr:nth-child(even) { background-color: #f6f8fa; }
+        .markdown-body s { text-decoration: line-through; }
+        .markdown-body input[type="checkbox"] { margin-right: 0.5em; }
+        @media print {
+            body, .h-screen { height: auto; }
+            header, textarea, .no-print { display: none !important; }
+            #preview { width: 100% !important; height: auto !important; padding: 0 !important; }
+            .markdown-body { font-size: 14px; }
+            /* Prevent breaking elements across pages */
+            .markdown-body p, .markdown-body li, .markdown-body table, .markdown-body pre { break-inside: avoid; }
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+    <header class="bg-gray-800 text-white p-4 flex justify-between items-center no-print">
+        <h1 class="text-xl font-bold">Markdown Editor</h1>
+        <div>
+            <input type="file" id="fileInput" accept=".md,.markdown" class="hidden">
+            <input type="file" id="imageInput" accept="image/*,image/svg+xml" class="hidden">
+            <button onclick="document.getElementById('fileInput').click()" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded mr-2">開く</button>
+            <button onclick="document.getElementById('imageInput').click()" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-1 px-3 rounded mr-2">画像挿入</button>
+            <button onclick="overwriteFile()" class="bg-yellow-600 hover:bg-yellow-800 text-white font-bold py-1 px-3 rounded mr-2">上書き保存</button>
+            <button onclick="saveFile()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-3 rounded mr-2">名前を付けて保存</button>
+            <button onclick="window.print()" class="bg-purple-600 hover:bg-purple-800 text-white font-bold py-1 px-3 rounded">PDF出力</button>
+        </div>
+    </header>
+    <main class="flex-grow flex overflow-hidden">
+        <textarea id="editor" class="w-1/2 h-full p-4 border-r border-gray-300 resize-none outline-none" placeholder="Markdownを入力..."></textarea>
+        <div id="preview" class="w-1/2 h-full p-4 overflow-y-auto markdown-body"></div>
+    </main>
+
+    <script>
+        const editor = document.getElementById('editor');
+        const preview = document.getElementById('preview');
+        const fileInput = document.getElementById('fileInput');
+        const imageInput = document.getElementById('imageInput');
+        let currentFileName = null;
+
+        // Initialize Mermaid
+        mermaid.initialize({ startOnLoad: false });
+
+        // Prevent accidental reload
+        window.addEventListener('beforeunload', (e) => {
+            if (editor.value.trim() !== "") {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+
+        async function updatePreview() {
+            const rawValue = editor.value;
+            preview.innerHTML = marked.parse(rawValue);
+            // Render Mermaid diagrams
+            await mermaid.run({
+                querySelector: '.language-mermaid',
+            });
+            // Render LaTeX
+            renderMathInElement(preview, {
+                delimiters: [
+                    {left: "$$", right: "$$", display: true},
+                    {left: "$", right: "$", display: false}
+                ],
+                throwOnError: false
+            });
+        }
+
+        editor.addEventListener('input', updatePreview);
+
+        // Open File
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            currentFileName = file.name;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                editor.value = e.target.result;
+                updatePreview();
+            };
+            reader.readAsText(file);
+        });
+
+        // Insert Image
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const dataUrl = e.target.result;
+                const markdownImage = `![画像](${dataUrl})`;
+                
+                // Insert at cursor position
+                const start = editor.selectionStart;
+                const end = editor.selectionEnd;
+                const text = editor.value;
+                editor.value = text.substring(0, start) + markdownImage + text.substring(end);
+                
+                // Update preview
+                updatePreview();
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Save File (as new)
+        function saveFile() {
+            const content = editor.value;
+            const fileName = prompt("ファイル名を入力してください (例: memo.md)", currentFileName || "document.md");
+            if (!fileName) return;
+            currentFileName = fileName;
+            downloadFile(content, fileName);
+        }
+
+        // Overwrite File
+        function overwriteFile() {
+            if (!currentFileName) {
+                saveFile();
+                return;
+            }
+            downloadFile(editor.value, currentFileName);
+        }
+
+        function downloadFile(content, fileName) {
+            const blob = new Blob([content], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
