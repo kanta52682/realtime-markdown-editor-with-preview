@@ -59,10 +59,8 @@
     </main>
 
     <script>
-        const fileInput = document.getElementById('fileInput');
         const imageInput = document.getElementById('imageInput');
-        let currentFileName = null;
-        const imageMap = new Map();
+        let currentFileHandle = null;
 
         // Initialize Mermaid
         mermaid.initialize({ startOnLoad: false });
@@ -76,15 +74,8 @@
         });
 
         async function updatePreview() {
-            let rawValue = editor.value;
-            
-            // Replace IDs with actual Data URLs
-            imageMap.forEach((dataUrl, id) => {
-                rawValue = rawValue.replace(new RegExp(`!\\[画像\\]\\(${id}\\)`, 'g'), `![画像](${dataUrl})`);
-            });
-
+            const rawValue = editor.value;
             preview.innerHTML = marked.parse(rawValue);
-            
             // Render Mermaid diagrams
             await mermaid.run({
                 querySelector: '.language-mermaid',
@@ -102,17 +93,67 @@
         editor.addEventListener('input', updatePreview);
 
         // Open File
-        fileInput.addEventListener('change', (e) => {
+        fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            currentFileName = file.name;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                editor.value = e.target.result;
-                updatePreview();
-            };
-            reader.readAsText(file);
+            
+            // File System Access API をサポートしている場合のみハンドルを取得
+            if ('showOpenFilePicker' in window) {
+                try {
+                    [currentFileHandle] = await window.showOpenFilePicker();
+                    const file = await currentFileHandle.getFile();
+                    editor.value = await file.text();
+                    updatePreview();
+                } catch (err) {
+                    if (err.name !== 'AbortError') console.error(err);
+                }
+            } else {
+                // フォールバック
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    editor.value = e.target.result;
+                    updatePreview();
+                };
+                reader.readAsText(file);
+            }
         });
+
+        // Save File (as new)
+        async function saveFile() {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: 'document.md',
+                    types: [{
+                        description: 'Markdown File',
+                        accept: { 'text/markdown': ['.md', '.markdown'] },
+                    }],
+                });
+                
+                const writable = await handle.createWritable();
+                await writable.write(editor.value);
+                await writable.close();
+                
+                currentFileHandle = handle;
+            } catch (err) {
+                if (err.name !== 'AbortError') console.error(err);
+            }
+        }
+
+        // Overwrite File
+        async function overwriteFile() {
+            if (!currentFileHandle) {
+                await saveFile();
+                return;
+            }
+            try {
+                const writable = await currentFileHandle.createWritable();
+                await writable.write(editor.value);
+                await writable.close();
+            } catch (err) {
+                console.error(err);
+                await saveFile();
+            }
+        }
 
         // Insert Image
         imageInput.addEventListener('change', (e) => {
@@ -122,10 +163,7 @@
             const reader = new FileReader();
             reader.onload = (e) => {
                 const dataUrl = e.target.result;
-                const id = 'img_' + Date.now();
-                imageMap.set(id, dataUrl);
-                
-                const markdownImage = `![画像](${id})`;
+                const markdownImage = `![画像](${dataUrl})`;
                 
                 // Insert at cursor position
                 const start = editor.selectionStart;
@@ -158,13 +196,7 @@
         }
 
         function downloadFile(content, fileName) {
-            let finalContent = content;
-            // Replace IDs with actual Data URLs
-            imageMap.forEach((dataUrl, id) => {
-                finalContent = finalContent.replace(new RegExp(`!\\[画像\\]\\(${id}\\)`, 'g'), `![画像](${dataUrl})`);
-            });
-
-            const blob = new Blob([finalContent], { type: 'text/markdown' });
+            const blob = new Blob([content], { type: 'text/markdown' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
