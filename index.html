@@ -59,11 +59,10 @@
     </main>
 
     <script>
-        const editor = document.getElementById('editor');
-        const preview = document.getElementById('preview');
         const fileInput = document.getElementById('fileInput');
         const imageInput = document.getElementById('imageInput');
         let currentFileName = null;
+        const imageMap = new Map();
 
         // Initialize Mermaid
         mermaid.initialize({ startOnLoad: false });
@@ -77,8 +76,15 @@
         });
 
         async function updatePreview() {
-            const rawValue = editor.value;
+            let rawValue = editor.value;
+            
+            // Replace IDs with actual Data URLs
+            imageMap.forEach((dataUrl, id) => {
+                rawValue = rawValue.replace(new RegExp(`!\\[画像\\]\\(${id}\\)`, 'g'), `![画像](${dataUrl})`);
+            });
+
             preview.innerHTML = marked.parse(rawValue);
+            
             // Render Mermaid diagrams
             await mermaid.run({
                 querySelector: '.language-mermaid',
@@ -116,7 +122,10 @@
             const reader = new FileReader();
             reader.onload = (e) => {
                 const dataUrl = e.target.result;
-                const markdownImage = `![画像](${dataUrl})`;
+                const id = 'img_' + Date.now();
+                imageMap.set(id, dataUrl);
+                
+                const markdownImage = `![画像](${id})`;
                 
                 // Insert at cursor position
                 const start = editor.selectionStart;
@@ -149,7 +158,13 @@
         }
 
         function downloadFile(content, fileName) {
-            const blob = new Blob([content], { type: 'text/markdown' });
+            let finalContent = content;
+            // Replace IDs with actual Data URLs
+            imageMap.forEach((dataUrl, id) => {
+                finalContent = finalContent.replace(new RegExp(`!\\[画像\\]\\(${id}\\)`, 'g'), `![画像](${dataUrl})`);
+            });
+
+            const blob = new Blob([finalContent], { type: 'text/markdown' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
