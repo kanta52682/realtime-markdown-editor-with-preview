@@ -59,11 +59,8 @@
     </main>
 
     <script>
-        const editor = document.getElementById('editor');
-        const preview = document.getElementById('preview');
-        const fileInput = document.getElementById('fileInput');
         const imageInput = document.getElementById('imageInput');
-        let currentFileName = null;
+        let currentFileHandle = null;
 
         // Initialize Mermaid
         mermaid.initialize({ startOnLoad: false });
@@ -96,17 +93,67 @@
         editor.addEventListener('input', updatePreview);
 
         // Open File
-        fileInput.addEventListener('change', (e) => {
+        fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            currentFileName = file.name;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                editor.value = e.target.result;
-                updatePreview();
-            };
-            reader.readAsText(file);
+            
+            // File System Access API をサポートしている場合のみハンドルを取得
+            if ('showOpenFilePicker' in window) {
+                try {
+                    [currentFileHandle] = await window.showOpenFilePicker();
+                    const file = await currentFileHandle.getFile();
+                    editor.value = await file.text();
+                    updatePreview();
+                } catch (err) {
+                    if (err.name !== 'AbortError') console.error(err);
+                }
+            } else {
+                // フォールバック
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    editor.value = e.target.result;
+                    updatePreview();
+                };
+                reader.readAsText(file);
+            }
         });
+
+        // Save File (as new)
+        async function saveFile() {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: 'document.md',
+                    types: [{
+                        description: 'Markdown File',
+                        accept: { 'text/markdown': ['.md', '.markdown'] },
+                    }],
+                });
+                
+                const writable = await handle.createWritable();
+                await writable.write(editor.value);
+                await writable.close();
+                
+                currentFileHandle = handle;
+            } catch (err) {
+                if (err.name !== 'AbortError') console.error(err);
+            }
+        }
+
+        // Overwrite File
+        async function overwriteFile() {
+            if (!currentFileHandle) {
+                await saveFile();
+                return;
+            }
+            try {
+                const writable = await currentFileHandle.createWritable();
+                await writable.write(editor.value);
+                await writable.close();
+            } catch (err) {
+                console.error(err);
+                await saveFile();
+            }
+        }
 
         // Insert Image
         imageInput.addEventListener('change', (e) => {
